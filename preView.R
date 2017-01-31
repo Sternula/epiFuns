@@ -38,22 +38,37 @@ preView <- function( data, outcome, by, is.interval = TRUE, group = NULL, alpha 
   
   # Identify the method used to calculate confidence intervals (and centers)--following Brown et al. (2001)
   method <- match.arg( method )
-  if( method %in% c( "jeffreys", "clopper-pearson" ) ){
-    message( sprintf( "%s interval method not yet implemented. Switching to Wald (standard)...", method ) )
-    method <- "wald"
-  }
   
   # Define functions used to calculate prevalence/proportions by different `method`s.
   p.fun <- switch( method, 
                    "wald" = function( .t ){ sum( as.logical( .t ), na.rm = TRUE ) / sum( !is.na( .t ) ) }, 
                    "agresti-coull" = function( .t ){ ( sum( as.logical( .t ), na.rm = TRUE ) + ( 0.5 * k^2 ) ) / ( sum( !is.na( .t ) ) + k^2 ) }, 
-                   "wilson" = function( .t ){ ( sum( as.logical( .t ), na.rm = TRUE ) + ( 0.5 * k^2 ) ) / ( sum( !is.na( .t ) ) + k^2 ) } )
+                   "wilson" = function( .t ){ ( sum( as.logical( .t ), na.rm = TRUE ) + ( 0.5 * k^2 ) ) / ( sum( !is.na( .t ) ) + k^2 ) }, 
+                   "jeffreys" = function( .t ){ sum( as.logical( .t ), na.rm = TRUE ) / sum( !is.na( .t ) ) }, 
+                   "clopper-pearson" = function( .t ){ sum( as.logical( .t ), na.rm = TRUE ) / sum( !is.na( .t ) ) } )
   
   # Define functions used to calculate confidence intervals by different `method`s.
-  ci.width <- switch( method, 
-                      "wald" = function( .p, .k, .n ){ .k * sqrt( ( .p * ( 1 - .p ) ) / .n ) }, 
-                      "agresti-coull" = function( .p, .k, .n ){ .k * sqrt( ( .p * ( 1 - .p ) ) / .n ) },
-                      "wilson" = function( .p, .k, .n ){ ( ( .k * sqrt( .n ) ) / ( .n + .k^2 ) ) * sqrt( ( .p * ( 1 - .p ) ) + ( .k^2 / ( 4 * .n ) ) ) } )
+  ci.fun <- switch( method, 
+                    "wald" = function( .x, .p, .k, .n, .l = c( "l", "u" ) ){ 
+                      if( identical( .l, "l" ) )
+                        .p - ( .k * sqrt( ( .p * ( 1 - .p ) ) / .n ) )
+                      else .p + ( .k * sqrt( ( .p * ( 1 - .p ) ) / .n ) ) }, 
+                    "agresti-coull" = function( .p, .k, .n, .l = c( "l", "u" ) ){ 
+                      if( identical( .l, "l" ) )
+                        .p - ( .k * sqrt( ( .p * ( 1 - .p ) ) / .n ) ) 
+                      else .p + ( .k * sqrt( ( .p * ( 1 - .p ) ) / .n ) ) },
+                    "wilson" = function( .x, .p, .k, .n, .l = c( "l", "u" ) ){ 
+                      if( identical( .l, "l" ) ) 
+                        .p - ( ( ( .k * sqrt( .n ) ) / ( .n + .k^2 ) ) * sqrt( ( .p * ( 1 - .p ) ) + ( .k^2 / ( 4 * .n ) ) ) )
+                      else .p + ( ( ( .k * sqrt( .n ) ) / ( .n + .k^2 ) ) * sqrt( ( .p * ( 1 - .p ) ) + ( .k^2 / ( 4 * .n ) ) ) ) }, 
+                    "jeffreys" = function( .x, .p, .k, .n, .l = c( "l", "u" ) ){
+                      if( identical( .l, "l" ) )
+                        qbeta( alpha / 2, .x + 0.5, .n - .x + 0.5 )
+                      else qbeta( 1 - ( alpha / 2 ), .x + 0.5, .n - .x + 0.5 ) }, 
+                    "clopper-pearson" = function( .x, .p, .k, .n, .l = c( "l", "u" ) ){ 
+                      if( identical( .l, "l" ) )
+                        ifelse( .x == 0, 0, qbeta( alpha / 2, .x, .n - .x + 1 ) )
+                      else ifelse( .x == .n, 1, qbeta( 1 - ( alpha / 2 ), .x + 1, .n - .x ) ) } )
   
   # Summarize the data.
   p.summary <- data %>%                                                             # From the data,
@@ -81,8 +96,8 @@ preView <- function( data, outcome, by, is.interval = TRUE, group = NULL, alpha 
                      sep = "_" ) %>% 
     tidyr::spread( key = parameter,                                                      # and spread it back out, keeping `outcome` in a column for plot grouping.
                    value = value ) %>% 
-    dplyr::mutate( ci.hi = p + ci.width( p, k, n ),                                      # Calculate CIs based on the appropriate `method`ology.
-                   ci.lo = p - ci.width( p, k, n ) )
+    dplyr::mutate( ci.hi = ci.fun( x, p, k, n, "u" ),                                      # Calculate CIs based on the appropriate `method`ology.
+                   ci.lo = ci.fun( x, p, k, n, "l" ) )
   
   ##### MAKE PLOT #####
   
